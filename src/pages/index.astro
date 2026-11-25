@@ -1,0 +1,293 @@
+---
+import '../styles/global.css';
+---
+
+<!doctype html>
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="theme-color" content="#f4f1ea" />
+		<title>Diapasoneitor</title>
+	</head>
+	<body>
+		<main class="app-shell">
+			<header class="topbar">
+				<div>
+					<p class="eyebrow">Guitarra · Zurdo · Estándar</p>
+					<h1>Diapasoneitor</h1>
+				</div>
+				<div class="saved-controls">
+					<select id="saved-select" aria-label="Diagramas guardados">
+						<option value="">Nuevo diagrama</option>
+					</select>
+					<button id="new-button" type="button">Nuevo</button>
+					<button id="save-button" type="button" class="primary">Guardar</button>
+					<button id="rename-button" type="button">Renombrar</button>
+					<button id="duplicate-button" type="button">Duplicar</button>
+					<button id="delete-button" type="button" class="danger">Eliminar</button>
+				</div>
+			</header>
+
+			<section class="controls" aria-label="Controles del diapasón">
+				<label class="switch">
+					<input id="show-notes" type="checkbox" checked />
+					<span>Notas</span>
+				</label>
+				<label class="switch">
+					<input id="notation" type="checkbox" />
+					<span>Solfeo</span>
+				</label>
+				<label class="switch">
+					<input id="highlight-mode" type="checkbox" />
+					<span>Resaltar</span>
+				</label>
+				<label class="range-control">
+					<span>Ancho traste</span>
+					<input id="fret-width" type="range" min="44" max="55" value="55" />
+					<output id="fret-width-output">55 px</output>
+				</label>
+			</section>
+
+			<section class="fretboard-panel">
+				<div id="fretboard-scroll" class="fretboard-scroll">
+					<div id="fretboard" class="fretboard" aria-label="Diapasón interactivo"></div>
+				</div>
+			</section>
+		</main>
+
+		<dialog id="name-dialog">
+			<form method="dialog" id="name-form">
+				<h2 id="name-dialog-title">Guardar diagrama</h2>
+				<label for="name-input">Nombre</label>
+				<input id="name-input" type="text" maxlength="60" required />
+				<div class="dialog-actions">
+					<button value="cancel" type="button" id="name-cancel">Cancelar</button>
+					<button value="confirm" type="submit" class="primary">Aceptar</button>
+				</div>
+			</form>
+		</dialog>
+
+		<script>
+			type NoteMark = { fret: number; string: number; highlighted: boolean };
+			type Diagram = { id: string; name: string; marks: NoteMark[] };
+
+			const STORAGE_KEY = 'diapasoneitor-diagrams-v1';
+			const TUNING = ['E', 'A', 'D', 'G', 'B', 'E'];
+			const SOLFEO: Record<string, string> = { C: 'Do', D: 'Re', E: 'Mi', F: 'Fa', G: 'Sol', A: 'La', B: 'Si' };
+
+			const fretboard = document.querySelector<HTMLDivElement>('#fretboard')!;
+			const savedSelect = document.querySelector<HTMLSelectElement>('#saved-select')!;
+			const showNotes = document.querySelector<HTMLInputElement>('#show-notes')!;
+			const notation = document.querySelector<HTMLInputElement>('#notation')!;
+			const highlightMode = document.querySelector<HTMLInputElement>('#highlight-mode')!;
+			const fretWidth = document.querySelector<HTMLInputElement>('#fret-width')!;
+			const fretWidthOutput = document.querySelector<HTMLOutputElement>('#fret-width-output')!;
+			const nameDialog = document.querySelector<HTMLDialogElement>('#name-dialog')!;
+			const nameForm = document.querySelector<HTMLFormElement>('#name-form')!;
+			const nameInput = document.querySelector<HTMLInputElement>('#name-input')!;
+			const nameDialogTitle = document.querySelector<HTMLHeadingElement>('#name-dialog-title')!;
+
+			let marks: NoteMark[] = [];
+			let diagrams: Diagram[] = loadDiagrams();
+			let activeId = '';
+			let dirty = false;
+
+			function loadDiagrams(): Diagram[] {
+				try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+				catch { return []; }
+			}
+
+			function persistDiagrams() {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
+			}
+
+			function noteName(stringIndex: number, fret: number): string {
+				const base = [4, 9, 2, 7, 11, 4][stringIndex];
+				const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+				const american = names[(base + fret) % 12];
+				if (!notation.checked) return american;
+				const natural = american.replace('♯', '');
+				return SOLFEO[natural] ? SOLFEO[natural] + (american.includes('♯') ? '♯' : '') : american;
+			}
+
+			let shouldInitialScroll = true;
+
+			function render() {
+				const width = Number(fretWidth.value);
+				fretboard.style.setProperty('--fret-width', `${width}px`);
+				fretboard.innerHTML = '';
+
+				const topLabels = document.createElement('div');
+				topLabels.className = 'top-labels';
+				for (let fret = 24; fret >= 1; fret--) {
+					const label = document.createElement('div');
+					label.className = 'top-label';
+					label.textContent = fret % 2 === 1 ? String(fret) : '';
+					topLabels.append(label);
+				}
+				fretboard.append(topLabels);
+
+				for (let string = 6; string >= 1; string--) {
+					const rowIndex = 6 - string;
+					const row = document.createElement('div');
+					row.className = `string-row string-${string}`;
+					for (let fret = 24; fret >= 1; fret--) {
+						const position = document.createElement('button');
+						position.type = 'button';
+						position.className = 'position';
+						if (fret === 1) position.classList.add('nut');
+
+						const mark = marks.find((item) => item.fret === fret && item.string === string);
+						if (mark) {
+							const circle = document.createElement('span');
+							circle.className = 'note-circle' + (mark.highlighted ? ' highlighted' : '');
+							if (showNotes.checked) {
+								circle.textContent = noteName(rowIndex, fret);
+							}
+							position.append(circle);
+						}
+
+						position.addEventListener('click', () => toggleMark(string, fret));
+						row.append(position);
+					}
+					const stringLabel = document.createElement('div');
+					stringLabel.className = 'string-label';
+					stringLabel.textContent = String(string);
+					row.append(stringLabel);
+					fretboard.append(row);
+				}
+
+				fretWidthOutput.textContent = `${width} px`;
+				if (shouldInitialScroll) {
+					shouldInitialScroll = false;
+					requestAnimationFrame(() => {
+						const scroll = document.querySelector<HTMLDivElement>('#fretboard-scroll')!;
+						scroll.scrollLeft = scroll.scrollWidth;
+					});
+				}
+			}
+
+			function toggleMark(string: number, fret: number) {
+				const existing = marks.find((item) => item.fret === fret && item.string === string);
+				if (existing) {
+					if (highlightMode.checked) {
+						existing.highlighted = !existing.highlighted;
+					} else {
+						marks = marks.filter((item) => item !== existing);
+					}
+				} else {
+					marks.push({ fret, string, highlighted: highlightMode.checked });
+				}
+				dirty = true;
+				render();
+			}
+
+			function refreshSavedSelect() {
+				savedSelect.innerHTML = '<option value="">Nuevo diagrama</option>';
+				for (const diagram of diagrams) {
+					const option = document.createElement('option');
+					option.value = diagram.id;
+					option.textContent = diagram.name;
+					savedSelect.append(option);
+				}
+				savedSelect.value = activeId;
+			}
+
+			function askName(title: string, currentName = ''): Promise<string | null> {
+				nameDialogTitle.textContent = title;
+				nameInput.value = currentName;
+				nameDialog.showModal();
+				nameInput.focus();
+				return new Promise((resolve) => {
+					nameForm.onsubmit = (event) => { event.preventDefault(); nameDialog.close(); resolve(nameInput.value.trim() || null); };
+					document.querySelector<HTMLButtonElement>('#name-cancel')!.onclick = () => { nameDialog.close(); resolve(null); };
+				});
+			}
+
+			async function save() {
+				const active = diagrams.find((item) => item.id === activeId);
+				const name = await askName(active ? 'Guardar cambios' : 'Guardar diagrama', active?.name);
+				if (!name) return;
+				if (active) {
+					active.name = name;
+					active.marks = structuredClone(marks);
+				} else {
+					const id = crypto.randomUUID();
+					diagrams.push({ id, name, marks: structuredClone(marks) });
+					activeId = id;
+				}
+				persistDiagrams();
+				dirty = false;
+				refreshSavedSelect();
+			}
+
+			async function newDiagram() {
+				if (dirty && !confirm('Hay cambios sin guardar. ¿Deseas descartar el diagrama actual?')) return;
+				activeId = '';
+				marks = [];
+				dirty = false;
+				refreshSavedSelect();
+				render();
+			}
+
+			savedSelect.addEventListener('change', async () => {
+				if (dirty && !confirm('Hay cambios sin guardar. ¿Deseas descartar el diagrama actual?')) {
+					refreshSavedSelect();
+					return;
+				}
+				const diagram = diagrams.find((item) => item.id === savedSelect.value);
+				activeId = diagram?.id || '';
+				marks = diagram ? structuredClone(diagram.marks) : [];
+				dirty = false;
+				render();
+			});
+
+			document.querySelector('#new-button')!.addEventListener('click', newDiagram);
+			document.querySelector('#save-button')!.addEventListener('click', save);
+
+			document.querySelector('#rename-button')!.addEventListener('click', async () => {
+				const active = diagrams.find((item) => item.id === activeId);
+				if (!active) return;
+				const name = await askName('Renombrar diagrama', active.name);
+				if (!name) return;
+				active.name = name;
+				persistDiagrams();
+				refreshSavedSelect();
+			});
+
+			document.querySelector('#duplicate-button')!.addEventListener('click', async () => {
+				const active = diagrams.find((item) => item.id === activeId);
+				if (!active) return;
+				const name = await askName('Duplicar diagrama', `${active.name} copia`);
+				if (!name) return;
+				const id = crypto.randomUUID();
+				diagrams.push({ id, name, marks: structuredClone(marks) });
+				activeId = id;
+				dirty = false;
+				persistDiagrams();
+				refreshSavedSelect();
+			});
+
+			document.querySelector('#delete-button')!.addEventListener('click', () => {
+				const active = diagrams.find((item) => item.id === activeId);
+				if (!active || !confirm(`¿Eliminar «${active.name}»?`)) return;
+				diagrams = diagrams.filter((item) => item.id !== activeId);
+				activeId = '';
+				marks = [];
+				dirty = false;
+				persistDiagrams();
+				refreshSavedSelect();
+				render();
+			});
+
+			showNotes.addEventListener('change', render);
+			notation.addEventListener('change', render);
+			highlightMode.addEventListener('change', () => {});
+			fretWidth.addEventListener('input', render);
+
+			refreshSavedSelect();
+			render();
+		</script>
+	</body>
+</html>
