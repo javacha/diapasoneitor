@@ -58,4 +58,12 @@ vercel
 vercel --prod
 ```
 
-Los diagramas se guardan únicamente en `localStorage` del navegador.
+## Persistencia compartida
+
+La persistencia usa Vercel Blob. Crea un Blob Store en Vercel y configura `BLOB_READ_WRITE_TOKEN` en `.env.local` para desarrollo:
+
+```bash
+BLOB_READ_WRITE_TOKEN=tu-token
+```
+
+Los datos de Diapasoneitor se almacenan con el prefijo separado `diapasoneitor/`, dentro del mismo Blob Store que puedan compartir otras aplicaciones. El Store puede configurarse como privado; la API accede a los archivos mediante el SDK y el token de lectura/escritura. Las URL públicas no tienen autenticación.

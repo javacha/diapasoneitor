@@ -70,9 +70,8 @@ import '../styles/global.css';
 
 		<script>
 			type NoteMark = { fret: number; string: number; highlighted: boolean };
-			type Diagram = { id: string; name: string; marks: NoteMark[] };
+			type Diagram = { version: 1; id: string; name: string; marks: NoteMark[] };
 
-			const STORAGE_KEY = 'diapasoneitor-diagrams-v1';
 			const TUNING = ['E', 'A', 'D', 'G', 'B', 'E'];
 			const SOLFEO: Record<string, string> = { C: 'Do', D: 'Re', E: 'Mi', F: 'Fa', G: 'Sol', A: 'La', B: 'Si' };
 
@@ -89,17 +88,30 @@ import '../styles/global.css';
 			const nameDialogTitle = document.querySelector<HTMLHeadingElement>('#name-dialog-title')!;
 
 			let marks: NoteMark[] = [];
-			let diagrams: Diagram[] = loadDiagrams();
+			let diagrams: Diagram[] = [];
 			let activeId = '';
 			let dirty = false;
 
-			function loadDiagrams(): Diagram[] {
-				try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-				catch { return []; }
+			async function loadDiagrams() {
+				try {
+					const response = await fetch('/api/diagrams');
+					if (!response.ok) throw new Error('No se pudieron cargar los diagramas');
+					const data = await response.json() as { diagrams: Diagram[] };
+					diagrams = data.diagrams;
+					refreshSavedSelect();
+				} catch (error) {
+					console.error(error);
+					alert('No se pudieron cargar los diagramas del servidor. Verificá la configuración de Vercel Blob.');
+				}
 			}
 
-			function persistDiagrams() {
-				localStorage.setItem(STORAGE_KEY, JSON.stringify(diagrams));
+			async function persistDiagram(diagram: Diagram) {
+				const response = await fetch('/api/diagrams', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(diagram),
+				});
+				if (!response.ok) throw new Error('No se pudo guardar el diagrama');
 			}
 
 			function noteName(stringIndex: number, fret: number): string {
@@ -209,17 +221,21 @@ import '../styles/global.css';
 				const active = diagrams.find((item) => item.id === activeId);
 				const name = await askName(active ? 'Guardar cambios' : 'Guardar diagrama', active?.name);
 				if (!name) return;
-				if (active) {
-					active.name = name;
-					active.marks = structuredClone(marks);
-				} else {
-					const id = crypto.randomUUID();
-					diagrams.push({ id, name, marks: structuredClone(marks) });
-					activeId = id;
+				const diagram: Diagram = active
+					? { ...active, name, marks: structuredClone(marks) }
+					: { version: 1, id: crypto.randomUUID(), name, marks: structuredClone(marks) };
+				try {
+					await persistDiagram(diagram);
+					const index = diagrams.findIndex((item) => item.id === diagram.id);
+					if (index >= 0) diagrams[index] = diagram;
+					else diagrams.push(diagram);
+					activeId = diagram.id;
+					dirty = false;
+					refreshSavedSelect();
+				} catch (error) {
+					console.error(error);
+					alert('No se pudo guardar el diagrama en el servidor.');
 				}
-				persistDiagrams();
-				dirty = false;
-				refreshSavedSelect();
 			}
 
 			async function newDiagram() {
@@ -251,9 +267,16 @@ import '../styles/global.css';
 				if (!active) return;
 				const name = await askName('Renombrar diagrama', active.name);
 				if (!name) return;
-				active.name = name;
-				persistDiagrams();
-				refreshSavedSelect();
+				const renamed: Diagram = { ...active, name };
+				try {
+					await persistDiagram(renamed);
+					const index = diagrams.findIndex((item) => item.id === active.id);
+					diagrams[index] = renamed;
+					refreshSavedSelect();
+				} catch (error) {
+					console.error(error);
+					alert('No se pudo renombrar el diagrama en el servidor.');
+				}
 			});
 
 			document.querySelector('#duplicate-button')!.addEventListener('click', async () => {
@@ -261,24 +284,35 @@ import '../styles/global.css';
 				if (!active) return;
 				const name = await askName('Duplicar diagrama', `${active.name} copia`);
 				if (!name) return;
-				const id = crypto.randomUUID();
-				diagrams.push({ id, name, marks: structuredClone(marks) });
-				activeId = id;
-				dirty = false;
-				persistDiagrams();
-				refreshSavedSelect();
+				const duplicated: Diagram = { version: 1, id: crypto.randomUUID(), name, marks: structuredClone(marks) };
+				try {
+					await persistDiagram(duplicated);
+					diagrams.push(duplicated);
+					activeId = duplicated.id;
+					dirty = false;
+					refreshSavedSelect();
+				} catch (error) {
+					console.error(error);
+					alert('No se pudo duplicar el diagrama en el servidor.');
+				}
 			});
 
-			document.querySelector('#delete-button')!.addEventListener('click', () => {
+			document.querySelector('#delete-button')!.addEventListener('click', async () => {
 				const active = diagrams.find((item) => item.id === activeId);
 				if (!active || !confirm(`¿Eliminar «${active.name}»?`)) return;
-				diagrams = diagrams.filter((item) => item.id !== activeId);
-				activeId = '';
-				marks = [];
-				dirty = false;
-				persistDiagrams();
-				refreshSavedSelect();
-				render();
+				try {
+					const response = await fetch(`/api/diagrams/${encodeURIComponent(active.id)}`, { method: 'DELETE' });
+					if (!response.ok) throw new Error('No se pudo eliminar el diagrama');
+					diagrams = diagrams.filter((item) => item.id !== activeId);
+					activeId = '';
+					marks = [];
+					dirty = false;
+					refreshSavedSelect();
+					render();
+				} catch (error) {
+					console.error(error);
+					alert('No se pudo eliminar el diagrama del servidor.');
+				}
 			});
 
 			showNotes.addEventListener('change', render);
@@ -286,7 +320,7 @@ import '../styles/global.css';
 			highlightMode.addEventListener('change', () => {});
 			fretWidth.addEventListener('input', render);
 
-			refreshSavedSelect();
+			void loadDiagrams();
 			render();
 		</script>
 	</body>

@@ -38,7 +38,7 @@ Se deben incluir instrucciones para ejecutar la app localmente, versionarla con 
 - Al activar «resaltar», los círculos que vaya seleccionando cambian a fondo rojo.
 - Los acordes y escalas se crean desde cero.
 - No existe diferencia funcional entre acordes y escalas: cada configuración guardada recibe un nombre propio.
-- La persistencia inicial será local en el navegador.
+- La persistencia utiliza Vercel Blob en el servidor, con el namespace `diapasoneitor` separado de otros proyectos.
 - Solo se requiere soportar la afinación estándar.
 - La interfaz será minimalista.
 - Se toma la imagen adjunta como referencia visual general.
