@@ -2,14 +2,14 @@
 	"version": 3,
 	"routes": [
 		{
-			"src": "^/_astro(?:/(.*))$",
+			"handle": "filesystem"
+		},
+		{
+			"src": "^/_astro/(.*)$",
 			"headers": {
 				"cache-control": "public, max-age=31536000, immutable"
 			},
 			"continue": true
-		},
-		{
-			"handle": "filesystem"
 		},
 		{
 			"src": "^/_server-islands/([^/]+?)/?$",
@@ -29,14 +29,6 @@
 		},
 		{
 			"src": "^/$",
-			"dest": "_render"
-		},
-		{
-			"src": "^/404/?$",
-			"dest": "_render"
-		},
-		{
-			"src": "^/.*$",
 			"dest": "_render"
 		}
 	]
