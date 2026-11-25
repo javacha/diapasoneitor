@@ -47,7 +47,7 @@ git push -u origin main
 
 1. Accede a Vercel e importa el repositorio de Git.
 2. Selecciona Astro como framework detectado.
-3. Conserva `npm run build` como comando de compilación y `dist` como directorio de salida.
+3. Conserva `npm run build` como comando de compilación y deja que el adaptador de Astro para Vercel genere la salida.
 4. Pulsa **Deploy**.
 
 ### Desde CLI
